@@ -1,0 +1,64 @@
+Test cases for nutritions
+
+"I want below 100 fats"
+
+
+"I want carbs over 100"  
+
+
+"I want high protein and low fats"
+
+
+"I want a meal with high fats above 80 and low carbs below 50"  
+
+
+"I have sensitivity to potassium" 
+
+
+"I need a dish with low sodium and high fiber"  
+
+
+"I want a meal with above 200 calories and below 50 protein" 
+
+
+"I want a recipe with more than 150 calories and fats less than 50"  
+
+
+"I want meal with high carb over 50 but without cheese"  
+
+
+"I 'm allergic to nuts and milk but i want high protein dish"  
+
+
+"I want a dish with low cholesterol under 100 and high vitamin c"  
+
+
+"I want a meal with over 100 carbs, above 50 protein, and below 100 fats" 
+
+
+"I need a recipe with high fiber and low sodium"  
+
+
+"I want something with low calories under 300 and high potassium" 
+
+
+"I want a meal with protein over 100 and fats under 50"  
+
+
+"I want a dish without garlic and onions, and with low sodium"
+
+
+"I want a meal with more than 150 calories and fats below 50"  
+
+
+"I have sensitivity to cholesterol"  
+
+
+"I want a recipe with high magnesium and low carbohydrates" 
+
+
+"I want a dish with high vitamin c over 80 and low iron under 5"  
+
+ "I have meningioma and need to control my blood sugar levels. I want recipes that include ingredients such as chicken, broccoli, and green beans, but please avoid any dishes with added sugar or corn syrup. Additionally, I require meals with less than 700 calories per serving and lower than 20 g of fiber."
+"I have neuroma and need to follow a strictly gluten-free diet. I want recipes that include salmon, onion, and sweet potatoes, but please avoid any dishes with wheat or peppers. Additionally, I require meals that are high in protein with at least 25g per serving and contain less than 800 calories."
+
