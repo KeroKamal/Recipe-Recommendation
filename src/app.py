@@ -1,19 +1,34 @@
 from flask import Flask, request, jsonify
-import sys
-import io
 import pandas as pd
 from transformers import pipeline
 import os
 import re
 import json
-from IPython.display import Image, display
+import requests
+import random
 from difflib import get_close_matches
 from textblob import TextBlob
 from nltk.tokenize import word_tokenize, sent_tokenize
 import nltk
 import ast  
+from urllib.parse import quote
 
-nltk.download('punkt')
+def force_download_nltk():
+    nltk_data_dir = os.environ.get("NLTK_DATA", "/app/nltk_data")
+    transformers_cache_dir = os.environ.get("TRANSFORMERS_CACHE", "/app/transformers_cache")
+    os.makedirs(nltk_data_dir, exist_ok=True)
+    os.makedirs(transformers_cache_dir, exist_ok=True)
+    os.environ["NLTK_DATA"] = nltk_data_dir
+    os.environ["TRANSFORMERS_CACHE"] = transformers_cache_dir
+    needed_packages = ["punkt"]
+    for package in needed_packages:
+        try:
+            nltk.data.find(f"tokenizers/{package}")
+        except LookupError:
+            print(f"Downloading NLTK package: {package} to {nltk_data_dir}")
+            nltk.download(package, download_dir=nltk_data_dir)
+force_download_nltk()
+
 domain_words = {
     "carb", "carbs", "carbo", "carbohydrate", "carbohydrates",
     "fat", "fats", "protein", "proteins", "fiber", "cholesterol",
@@ -40,30 +55,30 @@ def summarize_input(text):
     summary = summarizer(text, max_length=130, min_length=30, do_sample=False)
     return summary[0]['summary_text']
 
-df = pd.read_csv(r"E:\Project\AI\Nutrition\Datasets\Final used Datasets\food_dataset_with_nutriition.csv")
+df = pd.read_csv("Datasets/Final used Datasets/food_dataset_with_nutriition.csv")
 print(f"Starting with {len(df)} recipes in dataset")
 nutrition_columns = ["calories", "Total fats", "Carbohydrate", "Fiber", "Protein", 
                      "Cholesterol", "Calcium", "Iron", "Magnesium", "Potassium", "Sodium", "Vitamin C"]
 for col in nutrition_columns:
     df[col] = pd.to_numeric(df[col], errors='coerce')
 
-disease_df = pd.read_csv(r"E:\Project\AI\Nutrition\Datasets\Final used Datasets\disease_food_nutrition_mapping.csv")
+disease_df = pd.read_csv("Datasets/Final used Datasets/disease_food_nutrition_mapping.csv")
 disease_df["Disease"] = disease_df["Disease"].str.lower()
 
 try:
-    with open(r"E:\Project\AI\Nutrition\docs\common_misspellings.json", "r") as file:
+    with open("docs/common_misspellings.json", "r") as file:
         common_misspellings = json.load(file)
 except FileNotFoundError:
     common_misspellings = {"suger": "sugar", "milc": "milk"}
-    with open(r"E:\Project\AI\Nutrition\docs\common_misspellings.json", "w") as file:
+    with open("docs/common_misspellings.json", "w") as file:
         json.dump(common_misspellings, file, indent=2)
 
 try:
-    with open(r"E:\Project\AI\Nutrition\docs\common_ingredients.json", "r") as file:
+    with open("docs/common_ingredients.json", "r") as file:
         common_ingredients = json.load(file)
 except FileNotFoundError:
     common_ingredients = ["sugar", "salt", "flour", "milk", "eggs", "butter", "oil", "water"]
-    with open(r"E:\Project\AI\Nutrition\docs\common_ingredients.json", "w") as file:
+    with open("docs/common_ingredients.json", "w") as file:
         json.dump(common_ingredients, file, indent=2)
 
 def create_ingredient_dictionary(dataframe, common_ingredients_list):
@@ -147,10 +162,10 @@ def correct_food_ingredient(ingredient, ingredient_dict, misspellings_dict):
 
 def add_misspelling(misspelled, correct):
     try:
-        with open(r"E:\Project\AI\Nutrition\docs\common_misspellings.json", "r") as file:
+        with open("docs/common_misspellings.json", "r") as file:
             misspellings = json.load(file)
         misspellings[misspelled.lower()] = correct.lower()
-        with open(r"E:\Project\AI\Nutrition\docs\common_misspellings.json", "w") as file:
+        with open("docs/common_misspellings.json", "w") as file:
             json.dump(misspellings, file, indent=2, sort_keys=True)
         return True
     except Exception:
@@ -406,17 +421,21 @@ def get_recipe_output(recipe_row):
     except Exception:
         ner_str = ner_info
     nutrition_details = {col: float(recipe_row[col]) for col in nutrition_columns}
-    return {
+    result = {
         "Meal name": recipe_name,
         "NER": ner_str,
         "Nutrition details": nutrition_details
     }
+    print(f"Meal name: {recipe_name}")
+    print(f"NER: {ner_str}")
+    print(f"Nutrition details: {nutrition_details}")
+    return result
 
 def process_long_query(query):
     if len(query.split()) > 500:
         print("Long input detected. Summarizing...")
         query = summarize_input(query)
-    print("Processed Query:", query)
+    print(f"Processed Query: \"{query}\"")
     corrected = smart_correct_spelling(query, domain_words)
     sentences = sent_tokenize(corrected)
     aggregated_include = []
@@ -433,87 +452,176 @@ def process_long_query(query):
     return corrected, list(set(aggregated_include)), list(set(aggregated_exclude)), \
            list(set(aggregated_include_nutrition)), list(set(aggregated_exclude_nutrition))
 
-app = Flask(__name__)
+def send_to_api(meal_data, parent_id):
+    try:
+        api_endpoint = "http://54.242.19.19:3000/api/ResturantMenu/add"
+        meal_id = random.randint(1000, 9999)
+        meal_name = meal_data.get("Meal name", "No meal name available")
+        ner_info = meal_data.get("NER", "")
+        images_public = "https://kero.beshoy.me/recipe_images/"
+        image_path = True
+        image_url = ""
+        if image_path:
+            try:
+                image_url = images_public + quote(meal_name, safe="") + ".jpg"
+                print(f"Successfully uploaded image to the server for {meal_name}: {image_url}")
+            except Exception as cl_err:
+                print(f"Error uploading to the server: {cl_err}")
+        if not image_url:
+            image_url = "https://picsum.photos/200"
+        payload = {
+            "id": str(meal_id),
+            "name": meal_name,
+            "description": ner_info,
+            "photo": image_url,
+            "parentId": parent_id
+        }
+        print(f"\nSending payload to API: {payload}")
+        response = requests.post(api_endpoint, json=payload)
+        print(f"API Response for meal {meal_name}: {response.status_code}")
 
+        try:
+            return response.json()
+        except Exception:
+            return {"error": response.text}
+    except Exception as e:
+        print(f"Error sending meal to API: {e}")
+        return {"error": str(e)}
+
+app = Flask(__name__)
 @app.route('/process', methods=['POST'])
 def process():
-    input_text = request.get_data(as_text=True)
-    raw_input_text = input_text
-    processed_input, user_include, user_exclude, user_include_nutrition, user_exclude_nutrition = process_long_query(raw_input_text)
-    include_list, exclude_list = [], []
-    include_nutrition, exclude_nutrition = [], []
-    disease_recs = get_disease_recommendations(processed_input, disease_df)
-    if disease_recs:
-        print("\nDisease-related Recommendations Detected:")
-        print(f"Disease: {disease_recs['Disease']}")
-        print(f"Best Foods: {disease_recs['Best_Foods']}")
-        print(f"Worst Foods: {disease_recs['Worst_Foods']}")
-        print(f"Best Nutrition: {disease_recs['Best_Nutrition']}")
-        print(f"Worst Nutrition: {disease_recs['Worst_Nutrition']}")
-        include_list.extend(disease_recs["Best_Foods"])
-        exclude_list.extend(disease_recs["Worst_Foods"])
-        def parse_nutrition_condition(nutrition_phrase):
-            parts = nutrition_phrase.strip().split()
-            if len(parts) == 2:
-                direction = parts[0].lower()
-                nutrient = parts[1].lower()
-                mapped_nutrient = nutrition_terms_dictionary.get(nutrient, nutrient)
-                return (direction, mapped_nutrient)
-            return None
-        for bn in disease_recs["Best_Nutrition"]:
-            cond = parse_nutrition_condition(bn)
-            if cond:
-                include_nutrition.append(cond)
-        for wn in disease_recs["Worst_Nutrition"]:
-            cond = parse_nutrition_condition(wn)
-            if cond:
-                exclude_nutrition.append(cond)
-    include_list.extend(user_include)
-    exclude_list.extend(user_exclude)
-    include_nutrition.extend(user_include_nutrition)
-    exclude_nutrition.extend(user_exclude_nutrition)
-    include_list = list(set(include_list))
-    exclude_list = list(set(exclude_list))
-    include_nutrition = list(set(include_nutrition))
-    exclude_nutrition = list(set(exclude_nutrition))
-    print("\nFinal Lists After Combining Disease + User Query:")
-    print("Ingredients to include:", include_list)
-    print("Ingredients to exclude:", exclude_list)
-    print("Nutrition conditions to include:", include_nutrition)
-    print("Nutrition conditions to exclude:", exclude_nutrition)
-    corrected_include = []
-    for ingredient in include_list:
-        corrected = correct_food_ingredient(ingredient, food_dictionary, common_misspellings)
-        corrected_include.append(corrected)
-        cleaned_ingredient = ingredient.strip().lower()
-        if cleaned_ingredient != corrected and cleaned_ingredient not in common_misspellings:
-            add_misspelling(cleaned_ingredient, corrected)
-    corrected_exclude = []
-    for ingredient in exclude_list:
-        corrected = correct_food_ingredient(ingredient, food_dictionary, common_misspellings)
-        corrected_exclude.append(corrected)
-        cleaned_ingredient = ingredient.strip().lower()
-        if cleaned_ingredient != corrected and cleaned_ingredient not in common_misspellings:
-            add_misspelling(cleaned_ingredient, corrected)
-    include_list = list(set(corrected_include))
-    exclude_list = list(set(corrected_exclude))
-    filtered_df = filter_and_rank_recipes(
-        df, 
-        include_list, 
-        exclude_list, 
-        include_nutrition, 
-        exclude_nutrition
-    )
-    final_output = {}
-    if not filtered_df.empty:
-        filtered_df = filtered_df.sample(frac=1)
-        recommended = get_recipe_output(filtered_df.iloc[0])
-        final_output["Recommended Meal"] = recommended
-        for i in range(1, min(6, len(filtered_df))):
-            final_output[f"Option {i}"] = get_recipe_output(filtered_df.iloc[i])
-    else:
-        final_output["Message"] = f"No recipes found that match your criteria.\nIngredients to include: {', '.join(include_list)}\nIngredients to exclude: {', '.join(exclude_list)}\nNutrition Include: {', '.join(str(cond) for cond in include_nutrition)}\nNutrition Exclude: {', '.join(str(cond) for cond in exclude_nutrition)}."
-    return jsonify(final_output)
+    try:
+
+        input_text = ""
+        parent_id = ""
+
+        if request.is_json:
+
+            data = request.json
+            input_text = data.get("description", "")
+            parent_id = data.get("parentId", "")
+            
+            if not input_text:
+                return jsonify({"error": "Missing description in request"}), 400
+            if not parent_id:
+                return jsonify({"error": "Missing parentId in request"}), 400
+
+        else:
+
+            input_text_json = request.form
+            input_text = input_text_json.get("description", "")
+            parent_id = input_text_json.get("parentId", "")
+            
+            if not input_text:
+                return jsonify({"error": "Missing description in request"}), 400
+            if not parent_id:
+                return jsonify({"error": "Missing parentId in request"}), 400
+
+            print("WARNING: Using raw data format. Please consider using JSON format.")
+
+        raw_input_text = input_text
+        processed_input, user_include, user_exclude, user_include_nutrition, user_exclude_nutrition = process_long_query(raw_input_text)
+        
+        include_list, exclude_list = [], []
+        include_nutrition, exclude_nutrition = [], []
+        
+        disease_recs = get_disease_recommendations(processed_input, disease_df)
+        
+        if disease_recs:
+            print("\nDisease-related Recommendations Detected:")
+            print(f"Disease: {disease_recs['Disease']}")
+            print(f"Best Foods: {disease_recs['Best_Foods']}")
+            print(f"Worst Foods: {disease_recs['Worst_Foods']}")
+            print(f"Best Nutrition: {disease_recs['Best_Nutrition']}")
+            print(f"Worst Nutrition: {disease_recs['Worst_Nutrition']}")
+            
+            include_list.extend(disease_recs["Best_Foods"])
+            exclude_list.extend(disease_recs["Worst_Foods"])
+
+            def parse_nutrition_condition(nutrition_phrase):
+                parts = nutrition_phrase.strip().split()
+                if len(parts) == 2:
+                    direction = parts[0].lower()
+                    nutrient = parts[1].lower()
+                    mapped_nutrient = nutrition_terms_dictionary.get(nutrient, nutrient)
+                    return (direction, mapped_nutrient)
+                return None
+
+            for bn in disease_recs["Best_Nutrition"]:
+                cond = parse_nutrition_condition(bn)
+                if cond:
+                    include_nutrition.append(cond)
+            for wn in disease_recs["Worst_Nutrition"]:
+                cond = parse_nutrition_condition(wn)
+                if cond:
+                    exclude_nutrition.append(cond)
+
+        include_list.extend(user_include)
+        exclude_list.extend(user_exclude)
+        include_nutrition.extend(user_include_nutrition)
+        exclude_nutrition.extend(user_exclude_nutrition)
+        
+        include_list = list(set(include_list))
+        exclude_list = list(set(exclude_list))
+        include_nutrition = list(set(include_nutrition))
+        exclude_nutrition = list(set(exclude_nutrition))
+
+        print("\nFinal Lists After Combining Disease + User Query:")
+        print(f"Ingredients to include: {include_list}")
+        print(f"Ingredients to exclude: {exclude_list}")
+        print(f"Nutrition conditions to include: {include_nutrition}")
+        print(f"Nutrition conditions to exclude: {exclude_nutrition}")
+
+        corrected_include = [correct_food_ingredient(ingredient, food_dictionary, common_misspellings) for ingredient in include_list]
+        corrected_exclude = [correct_food_ingredient(ingredient, food_dictionary, common_misspellings) for ingredient in exclude_list]
+
+        include_list = list(set(corrected_include))
+        exclude_list = list(set(corrected_exclude))
+        filtered_df = filter_and_rank_recipes(
+            df, 
+            include_list, 
+            exclude_list, 
+            include_nutrition, 
+            exclude_nutrition
+        )
+        
+        final_output = {}
+        api_responses = []
+        
+        if not filtered_df.empty:
+            filtered_df = filtered_df.sample(frac=1)
+            meal_count = min(6, len(filtered_df))
+            
+            for i in range(meal_count):
+                if i == 0:
+                    print("\nRecommended Meal:")
+                    meal_data = get_recipe_output(filtered_df.iloc[i])
+                    final_output["Recommended Meal"] = meal_data
+                else:
+                    print(f"\nOption {i}:")
+                    meal_data = get_recipe_output(filtered_df.iloc[i])
+                    final_output[f"Option {i}"] = meal_data
+                
+                api_response = send_to_api(meal_data, parent_id)
+                api_responses.append(api_response)
+        else:
+            error_message = f"No recipes found that match your criteria.\nIngredients to include: {', '.join(include_list)}\nIngredients to exclude: {', '.join(exclude_list)}\nNutrition Include: {', '.join(str(cond) for cond in include_nutrition)}\nNutrition Exclude: {', '.join(str(cond) for cond in exclude_nutrition)}."
+            print(error_message)
+            final_output["Message"] = error_message
+            return jsonify({"error": error_message}), 404
+        
+        return jsonify({
+            "original_response": final_output,
+            "api_responses": api_responses,
+            "message": f"Successfully processed {len(api_responses)} meals"
+        })
+    
+    except Exception as e:
+        print(f"Error processing request: {str(e)}")
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 7860))
+    app.run(host="0.0.0.0", port=port, debug=False)
